@@ -1,0 +1,150 @@
+---
+title: "simuls"
+author: "Michael Schaub and Olivier Gimenez"
+date: "10/12/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+#devtools::install_github("https://github.com/jaroyle/oSCR")
+library(oSCR)
+```
+
+
+```{r}
+set.seed(1234)
+xlim <- c(0, 13) 
+ylim <- c(0, 13) #state space
+N <- rpois(1, 40) #population size
+Dens <- 40/169 #density (0.237)
+s <- data.frame(x=runif(N, xlim[1], xlim[2]),
+y=runif(N, ylim[1], ylim[2])) #activity centers
+traps <- expand.grid(x=3:10, y=3:10) #trap locations
+D <- e2dist(s,traps) #distance to traps
+p0 <- 0.2 #baseline detection
+sigma <- 0.6 #spatial scale parameter
+pmat <- p0*exp(-D*D/(2*sigma*sigma)) #prob(capture in traps)
+J <- nrow(traps) #no. traps
+K <- 10 #no.occasions
+y <- array(0, dim=c(N, J, K)) #empty enc array
+for(i in 1:N){
+for(j in 1:J){
+y[i,j,1:K]<- rbinom(K, 1, pmat[i,j]) #simulate [i,j,k] encounters
+}}
+captured <- apply(y,1,sum)>0 #identify captured inds
+y <- y[captured,,] #removed uncaptured inds
+edf <- data.frame(which(y>0, arr.ind=T)) #which cells are non-0 (caps)
+edf <- data.frame(session = rep(1,nrow(edf)), #add the session column
+ind = edf$dim1, #row names are individual IDs
+trap = edf$dim2, #col names are trap IDs
+occ = edf$dim3) #slice names are occasion IDs
+trapactiv <- matrix(1, nrow = J, ncol = K) # all traps active all the time
+mask <- sample(J, J/2)
+trapactiv[mask, (K/2):K] <- 0
+trapactiv <- matrix(1, nrow = J, ncol = K) # half the traps get inactive half way
+tdf <- data.frame(Trap_id = 1:nrow(traps),
+X = traps[,1],
+Y = traps[,2],
+trapOperation = trapactiv)
+```
+
+
+```{r}
+#use our simulated data
+data <- data2oscr(edf = edf,
+tdf = list(tdf),
+sess.col = 1,
+id.col = 2,
+occ.col = 4,
+trap.col = 3,
+K = 10,
+ntraps = nrow(tdf))
+
+sf <- data$scrFrame
+head(edf)
+
+```
+
+```{r}
+str(sf,max.level = 1)
+```
+
+```{r}
+#plot(sf)
+plot(sf, jit=1, ax = FALSE)
+```
+
+Construct state space.
+```{r}
+ss.buffer <- make.ssDF(scrFrame = sf, # the scrFrame created above
+buffer = 3, # 3.00 km (sigma = 0.6km)
+res = 0.5) # 0.5 km
+
+plot(ss.buffer, sf, spider = TRUE) # the state space, traps and caps
+```
+
+```{r}
+#fit the model
+scr0 <- oSCR.fit(list(D ~ 1, p0 ~ 1, sig ~ 1), sf,ss.buffer)
+scr0
+```
+
+```{r}
+# function for doing the back transformation
+get.real(model, # a fitted model
+type, # the sub model to backtrasform ('dens', 'det',or 'sig')
+newdata) # [optional] new data object for predictions
+```
+
+
+```{r}
+#define the values we want to make prediction for
+pred.df.dens <- data.frame(Session = factor(1))
+#make predictions on the real scale
+(pred.dens <- get.real(scr0, type = "dens", newdata = pred.df.dens))
+```
+
+```{r}
+#make predictions on the real scale - per km^2
+(pred.dens <- get.real(scr0, type = "dens", newdata = pred.df.dens,
+
+d.factor = 4))
+```
+
+
+```{r}
+#make predictions on the real scale - total N
+(pred.dens <- get.real(scr0, type = "dens", newdata = pred.df.dens,
+d.factor = nrow(scr0$ssDF[[1]])))
+```
+
+```{r}
+nrow(ss.buffer[[1]])
+```
+
+```{r}
+# encounter probablitly at d(x,s)=0
+# define the values we want to make prediction for
+pred.df.det <- data.frame(Session = factor(1))
+#make predictions on the real scale
+(pred.det <- get.real(scr0, type = "det", newdata = pred.df.det))
+```
+
+```{r}
+# spatial scale parameter
+# define the values we want to make prediction for
+pred.df.sig <- data.frame(Session = factor(1))
+#make predictions on the real scale
+(pred.sig <- get.real(scr0, type = "sig", newdata = pred.df.sig))
+```
+
+```{r}
+pred.dens
+pred.det
+pred.sig
+```
+
