@@ -16,135 +16,190 @@ library(oSCR)
 
 
 ```{r}
+simul.scr <- function(pop.size = 40, 
+                      baseline.detection = 0.2, # baseline detection
+                      spatial.scale = 0.6, # spatial scale parameter
+                      nb.occ = 10, # no.occasions
+                      inactive.from.time = 5,
+                      percent.inactive.traps = 50,
+                      upper.x = 13,
+                      upper.y = 13,
+                      make.plot = FALSE){
+  xlim <- c(0, upper.x) 
+  ylim <- c(0, upper.y) # state space
+  N <- rpois(1, pop.size) # population size
+  Dens <- pop.size / (upper.x * upper.y) # density 
+  s <- data.frame(x = runif(N, xlim[1], xlim[2]), 
+                  y = runif(N, ylim[1], ylim[2])) # activity centers
+  traps <- expand.grid(x = 3:(upper.x - 3), 
+                       y = 3:(upper.y - 3)) # trap locations
+  D <- e2dist(s, traps) # distance to traps
+  pmat <- baseline.detection * exp(-D * D / (2 * spatial.scale * spatial.scale)) # prob(capture in traps)
+  J <- nrow(traps) # no. traps
+  y <- array(0, dim = c(N, J, nb.occ)) # empty enc array
+  trapactiv <- matrix(1, nrow = J, ncol = nb.occ) # all traps active all the time
+  mask <- sample(J, round(J * percent.inactive.traps / 100))
+  if (length(mask) == 0)  {
+    trapactiv2 <- trapactiv}
+  else  {
+    trapactiv2 <- trapactiv
+    trapactiv2[mask, inactive.from.time:nb.occ] <- 0 # half the traps get inactive half way
+  }
+  for(i in 1:N){
+    for(j in 1:J){
+      for (k in 1:nb.occ){
+        y[i,j,k]<- rbinom(1, 1, pmat[i,j] * trapactiv2[j,k]) # simulate [i,j,k] encounters
+      }
+    }
+  }
+  captured <- apply(y, 1, sum) > 0 # identify captured inds
+  y <- y[captured,,] # removed uncaptured inds
+  edf <- data.frame(which(y > 0, arr.ind = T)) # which cells are non-0 (caps)
+  edf <- data.frame(session = rep(1, nrow(edf)), # add the session column
+                    ind = edf$dim1, # row names are individual IDs
+                    trap = edf$dim2, # col names are trap IDs
+                    occ = edf$dim3) #slice names are occasion IDs
+  tdf.true <- data.frame(Trap_id = 1:nrow(traps),
+                         X = traps[,1],
+                         Y = traps[,2],
+                         trapOperation = trapactiv2)
+  tdf.false <- data.frame(Trap_id = 1:nrow(traps),
+                          X = traps[,1],
+                          Y = traps[,2],
+                          trapOperation = trapactiv)
+  # format simulated data
+  data.true <- data2oscr(edf = edf,
+                         tdf = list(tdf.true),
+                         sess.col = 1,
+                         id.col = 2,
+                         occ.col = 4,
+                         trap.col = 3,
+                         K = nb.occ,
+                         ntraps = nrow(tdf.true))
+  sf.true <- data.true$scrFrame
+  data.false <- data2oscr(edf = edf,
+                          tdf = list(tdf.false),
+                          sess.col = 1,
+                          id.col = 2,
+                          occ.col = 4,
+                          trap.col = 3,
+                          K = nb.occ,
+                          ntraps = nrow(tdf.false))
+  sf.false <- data.false$scrFrame
+  ss.buffer.true <- make.ssDF(scrFrame = sf.true, # the scrFrame created above
+                              buffer = 3, # 3.00 km (sigma = 0.6km)
+                              res = 0.5) # 0.5 km
+  ss.buffer.false <- make.ssDF(scrFrame = sf.false, # the scrFrame created above
+                              buffer = 3, # 3.00 km (sigma = 0.6km)
+                              res = 0.5) # 0.5 km
+  if (make.plot == TRUE){
+    par(mfrow = c(2,2))
+    # Encounters
+    plot(sf.true, ax = FALSE, jit = 1)
+    plot(sf.false, ax = FALSE, jit = 1)
+    # State-space, traps and captures
+    plot(ss.buffer.true, sf.true, spider = TRUE) 
+    plot(1, 1, pch = '.', 
+         axes = FALSE, 
+         xlab = "",
+         ylab= "",
+         main = "left = trap activity correct\n right = erroneous")
+    #plot(ss.buffer.false, sf.false, spider = TRUE) 
+    }
+  list(sf.true = sf.true, 
+       sf.false = sf.false, 
+       ss.buffer.true = ss.buffer.true, 
+       ss.buffer.false = ss.buffer.false,
+       density = Dens,
+       pop.size = pop.size)
+}
+```
+
+
+```{r}
 set.seed(1234)
-xlim <- c(0, 13) 
-ylim <- c(0, 13) #state space
-N <- rpois(1, 40) #population size
-Dens <- 40/169 #density (0.237)
-s <- data.frame(x=runif(N, xlim[1], xlim[2]),
-y=runif(N, ylim[1], ylim[2])) #activity centers
-traps <- expand.grid(x=3:10, y=3:10) #trap locations
-D <- e2dist(s,traps) #distance to traps
-p0 <- 0.2 #baseline detection
-sigma <- 0.6 #spatial scale parameter
-pmat <- p0*exp(-D*D/(2*sigma*sigma)) #prob(capture in traps)
-J <- nrow(traps) #no. traps
-K <- 10 #no.occasions
-y <- array(0, dim=c(N, J, K)) #empty enc array
-for(i in 1:N){
-for(j in 1:J){
-y[i,j,1:K]<- rbinom(K, 1, pmat[i,j]) #simulate [i,j,k] encounters
-}}
-captured <- apply(y,1,sum)>0 #identify captured inds
-y <- y[captured,,] #removed uncaptured inds
-edf <- data.frame(which(y>0, arr.ind=T)) #which cells are non-0 (caps)
-edf <- data.frame(session = rep(1,nrow(edf)), #add the session column
-ind = edf$dim1, #row names are individual IDs
-trap = edf$dim2, #col names are trap IDs
-occ = edf$dim3) #slice names are occasion IDs
-trapactiv <- matrix(1, nrow = J, ncol = K) # all traps active all the time
-mask <- sample(J, J/2)
-trapactiv[mask, (K/2):K] <- 0
-trapactiv <- matrix(1, nrow = J, ncol = K) # half the traps get inactive half way
-tdf <- data.frame(Trap_id = 1:nrow(traps),
-X = traps[,1],
-Y = traps[,2],
-trapOperation = trapactiv)
-```
-
-
-```{r}
-#use our simulated data
-data <- data2oscr(edf = edf,
-tdf = list(tdf),
-sess.col = 1,
-id.col = 2,
-occ.col = 4,
-trap.col = 3,
-K = 10,
-ntraps = nrow(tdf))
-
-sf <- data$scrFrame
-head(edf)
-
+sim <- simul.scr(make.plot = TRUE)
+str(sim, max.level = 1)
 ```
 
 ```{r}
-str(sf,max.level = 1)
+compute.bias <- function(nb.simul = 2,
+                         pop.size = 40, 
+                         baseline.detection = 0.2, # baseline detection
+                         spatial.scale = 0.6, # spatial scale parameter
+                         nb.occ = 10, # no.occasions
+                         inactive.from.time = 5,
+                         percent.inactive.traps = 50,
+                         upper.x = 13,
+                         upper.y = 13){
+  
+  # pre-allocate memory
+  res.true <- matrix(NA, nrow = nb.simul, ncol = 4)
+  colnames(res.true) <- c("density", "abundance", "detection", "scale")
+  res.false <- res.true
+  
+  for (i in 1:nb.simul){
+    
+    # simulate data
+    sim <- simul.scr(pop.size = 40, 
+                     baseline.detection = 0.2, # baseline detection
+                     spatial.scale = 0.6, # spatial scale parameter
+                     nb.occ = 10, # no.occasions
+                     inactive.from.time = 5,
+                     percent.inactive.traps = 50,
+                     upper.x = 13,
+                     upper.y = 13,
+                     make.plot = FALSE)
+    
+    # fit model with correct info on trap activity, and compute bias
+    scr0 <- oSCR.fit(list(D ~ 1, p0 ~ 1, sig ~ 1), scrFrame = sim$sf.true, ssDF = sim$ss.buffer.true)
+    # get estimated density
+    pred.df.dens <- data.frame(Session = factor(1))
+    pred.dens <- get.real(scr0, type = "dens", newdata = pred.df.dens, d.factor = 4)
+    # get estimated abundance
+    pred.n <- get.real(scr0, type = "dens", newdata = pred.df.dens, d.factor = nrow(scr0$ssDF[[1]]))
+    # get estimated encounter probability at d(x,s) = 0
+    pred.df.det <- data.frame(Session = factor(1))
+    pred.det <- get.real(scr0, type = "det", newdata = pred.df.det)
+    # get estimated spatial scale parameter
+    pred.df.sig <- data.frame(Session = factor(1))
+    pred.sig <- get.real(scr0, type = "sig", newdata = pred.df.sig)
+    res.true[i, 1] <- unlist(pred.dens[1])
+    res.true[i, 2] <- unlist(pred.n[1])
+    res.true[i, 3] <- unlist(pred.det[2])
+    res.true[i, 4] <- unlist(pred.sig[1])
+    
+    # fit model with erroneous info on trap activity, and compute bias
+    scr0 <- oSCR.fit(list(D ~ 1, p0 ~ 1, sig ~ 1), scrFrame = sim$sf.false, ssDF = sim$ss.buffer.false)
+    pred.df.dens <- data.frame(Session = factor(1))
+    pred.dens <- get.real(scr0, type = "dens", newdata = pred.df.dens, d.factor = 4)
+    pred.n <- get.real(scr0, type = "dens", newdata = pred.df.dens, d.factor = nrow(scr0$ssDF[[1]]))
+    pred.df.det <- data.frame(Session = factor(1))
+    pred.det <- get.real(scr0, type = "det", newdata = pred.df.det)
+    pred.df.sig <- data.frame(Session = factor(1))
+    pred.sig <- get.real(scr0, type = "sig", newdata = pred.df.sig)
+    res.false[i, 1] <- unlist(pred.dens[1])
+    res.false[i, 2] <- unlist(pred.n[1])
+    res.false[i, 3] <- unlist(pred.det[2])
+    res.false[i, 4] <- unlist(pred.sig[1])
+  }
+  list(res.true = res.true,
+       res.false = res.false,
+       bias.true = (apply(res.true, 2, mean) - c(sim$density, sim$pop.size, baseline.detection, spatial.scale)) / c(sim$density, sim$pop.size, baseline.detection, spatial.scale) * 100,
+       bias.false = (apply(res.false, 2, mean) - c(sim$density, sim$pop.size, baseline.detection, spatial.scale)) / c(sim$density, sim$pop.size, baseline.detection, spatial.scale) * 100)
+}
 ```
 
 ```{r}
-#plot(sf)
-plot(sf, jit=1, ax = FALSE)
+inactive.from.time <- 3:9
+percent.inactive.traps <- seq(10, 90, by = 10)
+grid <- expand.grid(inactive.from.time, percent.inactive.traps)
+sim.res <- list()
+for (i in 1:nrow(grid)){
+  sim.res[[i]] <- compute.bias(nb.simul = 10,
+                      inactive.from.time = grid[i, 1],
+                      percent.inactive.traps = grid[i, 2])
+}
 ```
 
-Construct state space.
-```{r}
-ss.buffer <- make.ssDF(scrFrame = sf, # the scrFrame created above
-buffer = 3, # 3.00 km (sigma = 0.6km)
-res = 0.5) # 0.5 km
-
-plot(ss.buffer, sf, spider = TRUE) # the state space, traps and caps
-```
-
-```{r}
-#fit the model
-scr0 <- oSCR.fit(list(D ~ 1, p0 ~ 1, sig ~ 1), sf,ss.buffer)
-scr0
-```
-
-```{r}
-# function for doing the back transformation
-get.real(model, # a fitted model
-type, # the sub model to backtrasform ('dens', 'det',or 'sig')
-newdata) # [optional] new data object for predictions
-```
-
-
-```{r}
-#define the values we want to make prediction for
-pred.df.dens <- data.frame(Session = factor(1))
-#make predictions on the real scale
-(pred.dens <- get.real(scr0, type = "dens", newdata = pred.df.dens))
-```
-
-```{r}
-#make predictions on the real scale - per km^2
-(pred.dens <- get.real(scr0, type = "dens", newdata = pred.df.dens,
-
-d.factor = 4))
-```
-
-
-```{r}
-#make predictions on the real scale - total N
-(pred.dens <- get.real(scr0, type = "dens", newdata = pred.df.dens,
-d.factor = nrow(scr0$ssDF[[1]])))
-```
-
-```{r}
-nrow(ss.buffer[[1]])
-```
-
-```{r}
-# encounter probablitly at d(x,s)=0
-# define the values we want to make prediction for
-pred.df.det <- data.frame(Session = factor(1))
-#make predictions on the real scale
-(pred.det <- get.real(scr0, type = "det", newdata = pred.df.det))
-```
-
-```{r}
-# spatial scale parameter
-# define the values we want to make prediction for
-pred.df.sig <- data.frame(Session = factor(1))
-#make predictions on the real scale
-(pred.sig <- get.real(scr0, type = "sig", newdata = pred.df.sig))
-```
-
-```{r}
-pred.dens
-pred.det
-pred.sig
-```
 

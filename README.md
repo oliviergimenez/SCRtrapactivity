@@ -13,3 +13,9 @@ while in reality some of them were inactive for some time due to malfunctions or
 
 As a first step, we will simulate data with 64 traps, and 10 capture occasions, and half of the traps (randomly picked) went inactive half way (from occasion 6 up to occasion 10). 
 
+To-do list:
+
+* Faire des profils des poseurs/poseuses de pièges opportunistes et chercher les déterminants de la durée de pause (âge, profession, cherche du lynx spécifiquement, saison, etc...)
+
+* Réfléchir à des scénarios pour simuler les interruptions d'activité (clustering in space, in habitat, etc...)
+
