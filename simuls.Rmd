@@ -253,6 +253,8 @@ df2 <- cbind(biasfalse, grid) %>%
                        high = "blue")
   
 df / df2
+
+ggsave("density.png", dpi = 300)
 ```
 
 
