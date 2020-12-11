@@ -7,6 +7,9 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+theme_set(theme_light())
+library(patchwork)
 ```
 
 ```{r}
@@ -191,8 +194,8 @@ compute.bias <- function(nb.simul = 2,
 ```
 
 ```{r}
-inactive.from.time <- 3:9
-percent.inactive.traps <- seq(10, 90, by = 10)
+inactive.from.time <- 3:8
+percent.inactive.traps <- seq(30, 80, by = 10)
 grid <- expand.grid(inactive.from.time, percent.inactive.traps)
 sim.res <- list()
 for (i in 1:nrow(grid)){
@@ -201,5 +204,56 @@ for (i in 1:nrow(grid)){
                       percent.inactive.traps = grid[i, 2])
 }
 ```
+
+
+```{r}
+biastrue <- NULL
+biasfalse <- NULL
+for (i in 1:length(sim.res)){
+  biastrue <- rbind(biastrue, sim.res[[i]]$bias.true)
+  biasfalse <- rbind(biasfalse, sim.res[[i]]$bias.false)
+}
+biastrue <- biastrue %>%
+  as_tibble() #%>%
+#  pivot_longer(cols = density:scale, names_to = "par", values_to = "bias")
+biasfalse <- biasfalse %>%
+  as_tibble() #%>%
+#  pivot_longer(cols = density:scale, names_to = "par", values_to = "bias")
+
+colnames(grid) <- c("inactive.from.time", "percent.inactive.traps")
+
+df <- cbind(biastrue, grid) %>%
+  as_tibble() %>%
+  ggplot() + 
+  aes(x = inactive.from.time, 
+      y = percent.inactive.traps, 
+      fill = density) + 
+  geom_tile() + 
+  labs(y = "Amount of inactive traps (in %)",
+       x = "Inactive from occ 3 up to 8 (over 10 occ)",
+       fill = "Relative bias (in %)",
+       title = "Bias in density when trap activity is correct") + 
+  scale_fill_gradient2(low = "red", 
+                       mid = 0, 
+                       high = "blue")
+
+df2 <- cbind(biasfalse, grid) %>%
+  as_tibble() %>%
+  ggplot() + 
+  aes(x = inactive.from.time, 
+      y = percent.inactive.traps, 
+      fill = density) + 
+  geom_tile() + 
+  labs(y = "Amount of inactive traps (in %)",
+       x = "Inactive from occ 3 up to 8 (over 10 occ)",
+       fill = "Relative bias (in %)",
+       title = "Bias in density when trap activity is incorrect") + 
+  scale_fill_gradient2(low = "red", 
+                       mid = 0, 
+                       high = "blue")
+  
+df / df2
+```
+
 
 
