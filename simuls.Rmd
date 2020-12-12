@@ -1,8 +1,10 @@
 ---
-title: "simuls"
-author: "Michael Schaub and Olivier Gimenez"
+title: "Sensitivity of spatial capture-recapture models to errors in trap activity"
+author: "Olivier Gimenez"
 date: "10/12/2020"
-output: html_document
+output:
+  html_document: default
+  pdf_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -12,21 +14,51 @@ theme_set(theme_light())
 library(patchwork)
 ```
 
+## Introduction
+
+In France and Switzerland, we have camera trap surveys that are conducted to estimate lynx density. For intensive/deterministic surveys, the period of activity of traps is known. For opportunistic surveys, we most often do not know the period of activity of traps.
+
+Our objective is to combine data from both surveys, intensive/deterministic and opportunistic surveys.
+
+Before analyzing real data, we will conduct a simulation study to assess the sensitivity of spatial capture-recapture models to errors in the determination of the duration of activity of camera traps.
+
+In other words, we would like to estimate the bias in density estimates when we falsely assume that all traps are active all the time, while in reality some of them were inactive for some time due to malfunctions or rotations.
+
+Below I provide some preliminary results that suggest spatial capture-recapture models are robust to overestimation of trap activity duration. Check out the figure at the bottom of the document. 
+
+However, further work should be done before we can safely do the combination. In particular: 
+
+* Can we build profiles of camera-trap users for opportunistic sampling that would allow us predicting trap activity with respect to some explanatory variables (age, profession, season, motivation, etc).
+* Can we think of scenarios to mimic interruption in trap activity (clustering in space, in habitat, etc).
+* Increase number of simulations.
+
+## Build functions
+
+Load the `oSCR` package that will be used to fit spatial capture-recapture models. 
 ```{r}
 #devtools::install_github("https://github.com/jaroyle/oSCR")
 library(oSCR)
 ```
 
+We first build a function `simul.scr` that simulates data from a spatial capture-recapture experiment. Besides standard parameters like population size, baseline detection probability, spatial scale, the number of capture occasions and the size of the state space, we also give control upon two important parameters: 
 
+* `inactive.from.time` defines the occasions from which traps become inactive, and 
+* `percent.inactive.traps` defines the percentage of inactive traps. 
+
+Note that the netword of traps is built by substracting a buffer to the state-space via `expand.grid(x = 3:(upper.x - 3), y = 3:(upper.y - 3))` where `upper` gives the upper bound of the state-space along the corresponding dimension. 
+
+For completeness, we simulate a dataset with the correct information on trap activity, and another one with the incorrect information on trap activity, which is basically all traps are active all the time. 
+
+The function provides all the ingredients required by package `oSCR` to fit models. 
 ```{r}
-simul.scr <- function(pop.size = 40, 
+simul.scr <- function(pop.size = 40, # pop size
                       baseline.detection = 0.2, # baseline detection
                       spatial.scale = 0.6, # spatial scale parameter
                       nb.occ = 10, # no.occasions
                       inactive.from.time = 5,
                       percent.inactive.traps = 50,
-                      upper.x = 13,
-                      upper.y = 13,
+                      upper.x = 13, # upper bound of the state-space along x-axis
+                      upper.y = 13, # upper bound of the state-space along y-axis
                       make.plot = FALSE){
   xlim <- c(0, upper.x) 
   ylim <- c(0, upper.y) # state space
@@ -118,13 +150,16 @@ simul.scr <- function(pop.size = 40,
 }
 ```
 
-
+Let's illustrate the use of our function.
 ```{r}
 set.seed(1234)
 sim <- simul.scr(make.plot = TRUE)
 str(sim, max.level = 1)
 ```
 
+Now we build another function `compute.bias` that computes the relative bias (in percentage) in the parameters of a spatial capture-recapture model with constant parameters: population size, density, baseline detection and scale. 
+
+We simulate data, fit both models with correct and incorrect information on trap activity, and compute bias. This process is repeated `nb.simul` times. 
 ```{r}
 compute.bias <- function(nb.simul = 2,
                          pop.size = 40, 
@@ -193,68 +228,77 @@ compute.bias <- function(nb.simul = 2,
 }
 ```
 
+## Simulation study
+
+Let's define some scenarios. We assume that our experiment runs over 10 capture occasions. We consider all combinations with $\mbox{percent.inactive.traps} = 30\%, 40\%, 50\%, 60\%, 70\%, 80\%$ and $\mbox{inactive.from.time} = 5, 6, 7, 8$. 
 ```{r}
-inactive.from.time <- 3:8
+inactive.from.time <- 5:8
 percent.inactive.traps <- seq(30, 80, by = 10)
 grid <- expand.grid(inactive.from.time, percent.inactive.traps)
+colnames(grid) <- c("inactive.from.time", "percent.inactive.traps")
+```
+
+We run our experiment with 50 simulations. It lasted around 17 hours on my computer.
+```{r eval = FALSE}
 sim.res <- list()
+start_time <- Sys.time()
 for (i in 1:nrow(grid)){
-  sim.res[[i]] <- compute.bias(nb.simul = 10,
+  sim.res[[i]] <- compute.bias(nb.simul = 50,
                       inactive.from.time = grid[i, 1],
                       percent.inactive.traps = grid[i, 2])
 }
+end_time <- Sys.time()
+duration <- end_time - start_time
+save(sim.res, duration, file = "sim.RData")
 ```
 
-
+We format the results for visualisation.
 ```{r}
+load("sim.RData")
 biastrue <- NULL
 biasfalse <- NULL
 for (i in 1:length(sim.res)){
   biastrue <- rbind(biastrue, sim.res[[i]]$bias.true)
   biasfalse <- rbind(biasfalse, sim.res[[i]]$bias.false)
 }
-biastrue <- biastrue %>%
-  as_tibble() #%>%
-#  pivot_longer(cols = density:scale, names_to = "par", values_to = "bias")
-biasfalse <- biasfalse %>%
-  as_tibble() #%>%
-#  pivot_longer(cols = density:scale, names_to = "par", values_to = "bias")
+biastrue <- data.frame(biastrue, 
+                  model = rep("correct",nrow(biastrue)),
+                  grid)
+biasfalse <- data.frame(biasfalse, 
+                  model = rep("incorrect",nrow(biasfalse)),
+                  grid)
+df <- bind_rows(biastrue, biasfalse)
+df <- df %>% pivot_longer(cols = density:scale,
+                    names_to = "par",
+                    values_to = "bias")
+```
 
-colnames(grid) <- c("inactive.from.time", "percent.inactive.traps")
-
-df <- cbind(biastrue, grid) %>%
-  as_tibble() %>%
+And tada!
+```{r}
+df %>%
+  filter(model == "incorrect") %>%
   ggplot() + 
   aes(x = inactive.from.time, 
       y = percent.inactive.traps, 
-      fill = density) + 
+      fill = bias) + 
   geom_tile() + 
   labs(y = "Amount of inactive traps (in %)",
-       x = "Inactive from occ 3 up to 8 (over 10 occ)",
+       x = "Inactive from occasion 5 up to occasion 8 (out of 10 occasions)",
        fill = "Relative bias (in %)",
-       title = "Bias in density when trap activity is correct") + 
+       title = "Bias in parameters of spatial capture-recapture model",
+       subtitle = "10 occasions, N = 40, D = 0.23, p0 = 0.2, sigma = 0.6, 64 traps, 50 simulations") + 
   scale_fill_gradient2(low = "red", 
                        mid = 0, 
-                       high = "blue")
+                       high = "blue") + 
+  facet_wrap(vars(par), nrow = 2)
+```
 
-df2 <- cbind(biasfalse, grid) %>%
-  as_tibble() %>%
-  ggplot() + 
-  aes(x = inactive.from.time, 
-      y = percent.inactive.traps, 
-      fill = density) + 
-  geom_tile() + 
-  labs(y = "Amount of inactive traps (in %)",
-       x = "Inactive from occ 3 up to 8 (over 10 occ)",
-       fill = "Relative bias (in %)",
-       title = "Bias in density when trap activity is incorrect") + 
-  scale_fill_gradient2(low = "red", 
-                       mid = 0, 
-                       high = "blue")
-  
-df / df2
+Baseline detection is highly negatively biased, that is, it is estimated much lower than it should be. It is what we expect because the 0s that we have while the traps are inactive are taken as non-detections by the model when we consider that all traps are active all the time.
 
-ggsave("density.png", dpi = 300)
+It sounds like our parameter of prime interest, density, is little affected whatever the scenario considered.   
+
+```{r eval=FALSE, include=FALSE}
+ggsave("bias.png", dpi = 300)
 ```
 
 
